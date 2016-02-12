@@ -20,6 +20,6 @@
   },
   "dependencies": {
     "request": "^2.65.0",
-    "homebridge"
+    "homebridge": ">=0.2.16"
   }
 }
