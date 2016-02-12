@@ -1,0 +1,25 @@
+{
+  "name": "homebridge-platform-myq",
+  "version": "0.0.1",
+  "description": "myQ plugin for homebridge: https://github.com/nfarina/homebridge",
+  "license": "ISC",
+  "private": true,
+  "keywords": [
+    "homebridge-plugin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/rainlake/homebridge-platform-myq.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rainlake/homebridge-platform-myq/issues"
+  },
+  "engines": {
+    "node": ">=0.12.0",
+    "homebridge": ">=0.2.0"
+  },
+  "dependencies": {
+    "request": "^2.65.0",
+    "homebridge"
+  }
+}
