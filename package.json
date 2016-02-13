@@ -1,6 +1,6 @@
 {
   "name": "homebridge-platform-myq",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "description": "myQ plugin for homebridge: https://github.com/nfarina/homebridge",
   "license": "ISC",
   "keywords": [
