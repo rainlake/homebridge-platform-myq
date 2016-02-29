@@ -52,19 +52,38 @@ MyQPlatform.prototype.login = function(onSuccess, onFail) {
             if (body.ReturnCode !== '0') {
                 if(onFail) {
                     onFail.call(self, body.ReturnCode, body.ErrorMessage);
+                } else {
+                    self.retry_login.call(self, onSuccess);
                 }
             } else if(onSuccess) {
                 self.SecurityToken = body.SecurityToken;
                 self.log('SecurityToken: [%s]', self.SecurityToken);
-                self.getuser.call(self, onSuccess);
+                self.getuser.call(self, onSuccess, function(returnCode, errorMessage) {
+                    if(onFail) {
+                        onFail.call(self, returnCode, errorMessage);
+                    } else {
+                        self.retry_login.call(self, onSuccess);
+                    }
+                }.bind(self));
             }
         }
         else {
-            self.log("Error getting state (status code %s): %s", response.statusCode, err);
+            self.log("MyQ Server returned status code %s: %s", response.statusCode, error);
         }
     });
 }
-MyQPlatform.prototype.getuser = function(onSuccess) {
+MyQPlatform.prototype.retry_login = function(onSuccess) {
+    var self = this;
+    self.log('retrying login.');
+    self.log(onSuccess);
+    
+    self.login(onSuccess, function() {
+        setTimeout(function(returnCode, errorMessage) {
+            self.login.call(self, onSuccess, onFail);
+        }.bind(self), self.refreshInterval);
+    });
+}
+MyQPlatform.prototype.getuser = function(onSuccess, onFail) {
     var self = this;
     request.get({
         url : self.host + '/api/v4/user/getuser',
@@ -76,16 +95,21 @@ MyQPlatform.prototype.getuser = function(onSuccess) {
     }, function (error, response, body) {
         if (!error && response.statusCode == 200) {
             var json = JSON.parse(body);
-            if (json.ReturnCode === '0' && onSuccess) {
+            if (json.ReturnCode === '0') {
                 self.BrandId = json.BrandId;
                 self.BrandName = json.BrandName;
                 self.log('BrandId:[%s]', self.BrandId);
                 self.log('BrandName:[%s]', self.BrandName);
-                onSuccess.call(self);
-            } 
-        }
-        else {
-            self.log("Error getting state (status code %s): %s", response.statusCode, err);
+                if(onSuccess) {
+                    onSuccess.call(self);
+                }
+            } else {
+                if(onFail) {
+                    onFail(json.ReturnCode, json.ErrorMessage);
+                }
+            }
+        } else {
+            self.log("MyQ Server returned status code %s: %s", response.statusCode, error);
         }
     });
 }
@@ -109,28 +133,34 @@ MyQPlatform.prototype.getDevices = function(onSuccess, onFail) {
     }, function (error, response, body) {
         if (!error && response.statusCode == 200) {
             var json = JSON.parse(body);
-            if(json.ReturnCode === '0' && json.Devices && json.Devices.length > 0) {
-                var door_devices = [];
-                var light_devices = [];
-                var gateway_devices = [];
-                json.Devices.forEach(function(device) {
-                    if(device.MyQDeviceTypeId === 2 /*garage door*/
-                        || device.MyQDeviceTypeId === 5 /*gate*/
-                        || device.MyQDeviceTypeId === 7 /*MyQGarage(no gateway)*/
-                        || device.MyQDeviceTypeId === 17 /*Garage Door Opener WGDO*/) {
-                        door_devices.push(device);
-                    } else if (device.MyQDeviceTypeId === 3 /*light controller*/) {
-                        light_devices.push(device);
-                    } else if (device.MyQDeviceTypeId === 1 /*gateway*/) {
-                        gateway_devices.push(device);
-                    }
-                })
-                onSuccess.call(self, door_devices, light_devices, gateway_devices);
+            if(json.ReturnCode === '0') {
+                if(json.Devices && json.Devices.length > 0) {
+                    var door_devices = [];
+                    var light_devices = [];
+                    var gateway_devices = [];
+                    json.Devices.forEach(function(device) {
+                        if(device.MyQDeviceTypeId === 2 /*garage door*/
+                            || device.MyQDeviceTypeId === 5 /*gate*/
+                            || device.MyQDeviceTypeId === 7 /*MyQGarage(no gateway)*/
+                            || device.MyQDeviceTypeId === 17 /*Garage Door Opener WGDO*/) {
+                            door_devices.push(device);
+                        } else if (device.MyQDeviceTypeId === 3 /*light controller*/) {
+                            light_devices.push(device);
+                        } else if (device.MyQDeviceTypeId === 1 /*gateway*/) {
+                            gateway_devices.push(device);
+                        }
+                    })
+                    onSuccess.call(self, door_devices, light_devices, gateway_devices);
+                }
             } else if(onFail) {
                 onFail.call(self, error, response);
+            } else {
+                self.retry_login(onSuccess);
             }
         } else if(onFail) {
             onFail.call(self, error, response);
+        } else {
+            self.retry_login(onSuccess);
         }
     });
 }
@@ -161,16 +191,22 @@ MyQPlatform.prototype.getDeviceAttribute = function(deviceid, attributename, onS
             var json = JSON.parse(body);
             if(json.ReturnCode === '0') {
                 onSuccess.call(self, json.AttributeValue, json.UpdatedTime);
-            } else if(onFail) {
+            } else {
                 self.log('retrieving device attribute [%s] [%s] failed, response body is [%s]', deviceid, attributename, body);
-                onFail.call(self, error, response);
+                if(onFail) {
+                    onFail.call(self, error, response);
+                }
+                else {
+                    self.retry_login(onSuccess);
+                }
             }
-        } else if(onFail) {
-            self.log('retrieving device attribute [%s] [%s] failed, error is [%s], response is [%s]', deviceid, attributename, error, response);
-            onFail.call(self, error, response);
         } else {
-            self.log('retrieving device attribute [%s] [%s] failed, error is [%s]', deviceid, attributename, error);
-            self.log(response);
+            self.log('retrieving device attribute [%s] [%s] failed, error is [%s], response is [%s]', deviceid, attributename, error, response);
+            if(onFail) {
+                onFail.call(self, error, response);
+            } else {
+                self.retry_login(onSuccess);
+            }
         }
     });
 }
@@ -191,7 +227,12 @@ MyQPlatform.prototype.sendCommand = function(command, device_id, state, callback
             AttributeValue: state,
         }
     }, function (error, response, body) {
-        if (!error && response.statusCode == 200) {
+        if (!error && response.statusCode == 200 && json.ReturnCode === '0') {
+            self.log(body);
+        } else {
+            self.log('send command failed.');
+            self.log(error);
+            self.log(response);
             self.log(body);
         }
     });
@@ -216,39 +257,39 @@ MyQPlatform.prototype.light_off = function(device_id, callback) {
 MyQPlatform.prototype.accessories = function(callback) {
     var self = this;
     self.login.call(self, function() {
-        self.getDevices.call(self, function(door_devices, _, gateway_devices) {
+        self.getDevices.call(self, function(door_devices, light_devices, gateway_devices) {
             self.foundAccessories = [];
             door_devices.forEach(function(device) {
                 self.foundAccessories.push(new MyQDoorAccessory(self, device));
+            });
+            light_devices.forEach(function(device) {
+                self.foundAccessories.push(new MyQLightAccessory(self, device));
             });
             gateway_devices.forEach(function(device) {
                 self.foundAccessories.push(new MyQGateWayAccessory(self, device));
             });
             callback(self.foundAccessories);
             self.timer = setTimeout(self.deviceStateTimer.bind(self), self.refreshInterval);
+        }, function(returnCode, errorMessage) {
+            self.log('MyQ Server error when list accessories, returncode=[%s], errormessage=[%s]', returnCode, errorMessage);
+            throw new Error("homebridge-platform-myq has intentially brought down HomeBridge - please restart!");
         });
+    }, function(returnCode, errorMessage) {
+        self.log('MyQ Server error, returncode=[%s], errormessage=[%s]', returnCode, errorMessage);
+        throw new Error("homebridge-platform-myq has intentially brought down HomeBridge - please fix your configuration!");
     });
 }
 MyQPlatform.prototype.deviceStateTimer = function() {
     var self = this;
     if(self.timer) {
         clearTimeout(self.timer);
+        self.timer = null;
     }
     self.getDevices(function(door_devices) {
         self.foundAccessories.forEach(function(accessory) {
             accessory.updateDevice(door_devices);
         });
         self.timer = setTimeout(self.deviceStateTimer.bind(self), self.refreshInterval);
-    }, function (error, response) {
-        self.log('get device failed, might be timeout');
-        self.log(error);
-        self.log(response);
-        self.login.call(self, function(securityToken) {
-            self.timer = setTimeout(self.deviceStateTimer.bind(self), 200);
-        }, function (errorCode) {
-            self.log('login failed??');
-            self.timer = setTimeout(self.deviceStateTimer.bind(self), self.refreshInterval);
-        });
     });
 }
 
@@ -287,6 +328,41 @@ MyQGateWayAccessory.prototype.updateDevice = function(devices) {
     var self = this;
     for(var i=0; i< devices.length;i++){
         if(self.device.MyQDeviceId === devices[i].MyQDeviceId) {
+            //TODO update device.
+        }
+    }
+}
+
+function MyQLightAccessory(platform, device) {
+    var self = this;
+    self.platform = platform;
+    self.device = device;
+    self.desc = device.SerialNumber;
+    device.Attributes.forEach(function(attribute) {
+        if(attribute.AttributeDisplayName === 'desc') {
+            self.desc = attribute.Value;
+        } else if(attribute.AttributeDisplayName === 'fwver') {
+            self.fwver = attribute.Value;
+        }
+    });
+    self.name = self.desc;
+    self.log = platform.log;
+    self.log('found Gateway Device, deviceid=%s', self.device.MyQDeviceId);
+}
+MyQLightAccessory.prototype.getServices = function() {
+    var self = this;
+    return [new Service.AccessoryInformation()
+        .setCharacteristic(Characteristic.Name, self.desc)
+        .setCharacteristic(Characteristic.Manufacturer, self.platform.BrandName)
+        .setCharacteristic(Characteristic.Model, self.platform.BrandName)
+        .setCharacteristic(Characteristic.SerialNumber, self.device.SerialNumber)
+        .setCharacteristic(Characteristic.FirmwareRevision, self.fwver || '1.0.0')
+        .setCharacteristic(Characteristic.HardwareRevision, '1.0.0')];
+}
+MyQLightAccessory.prototype.updateDevice = function(devices) {
+    var self = this;
+    for(var i=0; i< devices.length;i++){
+        if(self.device.MyQDeviceId === devices[i].MyQDeviceId) {
         }
     }
 }
@@ -295,15 +371,13 @@ function MyQDoorAccessory(platform, device) {
     var self = this;
     self.platform = platform;
     self.log = platform.log;
-    self.device = device;
-
 
     self.currentState = '';
-    self.desc = self.device.MyQDeviceId;
+    self.desc = device.MyQDeviceId;
     self.isunattendedopenallowed = false;
     self.isunattendedcloseallowed = false;
 
-    self.updateState();
+    self.updateDevice([device]);
     self.targetDoorState = self.currentState;
 
     self.log('found GarageDoorOpener, deviceid=%s', self.device.MyQDeviceId);
@@ -322,7 +396,10 @@ function MyQDoorAccessory(platform, device) {
 
     self.service
         .getCharacteristic(Characteristic.CurrentDoorState)
-        .on('get', self.getState.bind(self));
+        .on('get', function(callback) {
+            self.log("Getting current state...[%s]", self.currentState);
+            callback(null, self.currentState);
+        }.bind(self));
     
     self.service
         .getCharacteristic(Characteristic.TargetDoorState)
@@ -357,25 +434,7 @@ MyQDoorAccessory.prototype.updateDoorState = function(doorstate, updateTime) {
     }
     self.stateUpdatedTime = updateTime;
 }
-MyQDoorAccessory.prototype.updateState = function () {
-    var self = this;
-    self.log('updateState');
-    self.device.Attributes.forEach(function(attribute) {
-        if (attribute.AttributeDisplayName === 'doorstate') {
-            self.updateDoorState.call(self, attribute.Value, attribute.UpdatedTime);            
-        } else if(attribute.AttributeDisplayName === 'desc') {
-            self.desc = attribute.Value;
-        } else if(attribute.AttributeDisplayName === 'isunattendedopenallowed') {
-            self.isunattendedopenallowed = attribute.Value === '1';
-        } else if(attribute.AttributeDisplayName === 'isunattendedcloseallowed') {
-            self.isunattendedcloseallowed = attribute.Value === '1';
-        }
-    });
-    self.log('Door State=[%s]', self.descState(self.currentState));
-    self.log('Door Updated time: [%s]', self.platform.dateTimeToDisplay(self.stateUpdatedTime));
-    self.log('Door isunattendedopenallowed=[%s]', self.isunattendedopenallowed);
-    self.log('Door isunattendedcloseallowed=[%s]', self.isunattendedcloseallowed);
-}
+
 MyQDoorAccessory.prototype.descState = function(state) {
     switch(state) {
         case Characteristic.CurrentDoorState.OPEN:
@@ -395,20 +454,36 @@ MyQDoorAccessory.prototype.descState = function(state) {
 MyQDoorAccessory.prototype.updateDevice = function(devices) {
     var self = this;
     for(var i=0; i< devices.length;i++){
-        if(self.device.MyQDeviceId === devices[i].MyQDeviceId) {
+        if(!self.device || (self.device.MyQDeviceId === devices[i].MyQDeviceId)) {
             self.device = devices[i];
-            self.updateState.call(self);
-            return true;
+            break;
         }
-    } 
-    return false;
+    }
+    if(!self.device) {
+        return;
+    }
+    self.device.Attributes.forEach(function(attribute) {
+        if (attribute.AttributeDisplayName === 'doorstate') {
+            self.updateDoorState.call(self, attribute.Value, attribute.UpdatedTime);
+        } else if(attribute.AttributeDisplayName === 'desc') {
+            self.desc = attribute.Value;
+        } else if(attribute.AttributeDisplayName === 'isunattendedopenallowed') {
+            self.isunattendedopenallowed = attribute.Value === '1';
+        } else if(attribute.AttributeDisplayName === 'isunattendedcloseallowed') {
+            self.isunattendedcloseallowed = attribute.Value === '1';
+        }
+    });
+    self.log('Door State=[%s]', self.descState(self.currentState));
+    self.log('Door Updated time: [%s]', self.platform.dateTimeToDisplay(self.stateUpdatedTime));
+    self.log('Door isunattendedopenallowed=[%s]', self.isunattendedopenallowed);
+    self.log('Door isunattendedcloseallowed=[%s]', self.isunattendedcloseallowed);
 }
 MyQDoorAccessory.prototype.refreshDoorState = function() {
     var self = this;
     var refreshSteps = [0, 1 * 1000, 3 * 1000, 5 * 1000, 10 * 1000, 20 * 1000, 30 * 1000, 60 * 1000];
     if(self.refreshTimer) {
         clearTimeout(self.refreshTimer);
-        self.refreshTimer = 0;
+        self.refreshTimer = null;
     }
     self.platform.getDeviceAttribute.call(self.platform, self.device.MyQDeviceId, 'doorstate', function(value, updatetime) {
         self.updateDoorState.call(self, value, updatetime);
@@ -416,18 +491,12 @@ MyQDoorAccessory.prototype.refreshDoorState = function() {
         self.log('door state of %s refreshed. last activity is %s seconds ago', self.device.MyQDeviceId, r / 1000);
         for(var i = refreshSteps.length - 1; i >= 0; i--) {
             if(r >= refreshSteps[i]) {
-                self.log('door state of %s refreshed. will do it again in %s ms.', self.device.MyQDeviceId, refreshSteps[i]);
+                self.log('will do it again in %s ms.', refreshSteps[i]);
                 self.refreshTimer = setTimeout(self.refreshDoorState.bind(self), refreshSteps[i]);
                 return;
             }
-        }        
+        }
     });
-}
-MyQDoorAccessory.prototype.getState = function(callback) {
-    var self = this;
-    var state = 0;
-    self.log("Getting current state...[%s]", self.currentState);
-    callback(null, self.currentState);
 }
 
 MyQDoorAccessory.prototype.setState = function(state, callback) {
@@ -456,7 +525,7 @@ MyQDoorAccessory.prototype.setState = function(state, callback) {
                 }.bind(self), 3000); // wait few seconds. make sure door is working.
             });
         } else if(self.currentState === Characteristic.CurrentDoorState.OPENING) {
-            callback(null); 
+            callback(null);
         } else {
             self.log('Can not open door, current state is:[%s]', self.currentState);
             callback(new Error('Can not open door, current state not allowed'));
