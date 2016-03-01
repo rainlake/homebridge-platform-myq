@@ -35,8 +35,7 @@ function MyQPlatform(log, config) {
         self.host = 'https://craftexternal.myqdevice.com';
         self.appId = 'OA9I/hgmPHFp9RYKJqCKfwnhh28uqLJzZ9KOJf1DXoo8N2XAaVX6A1wcLYyWsnnv';
     }
-    self.refreshInterval = 60 * 60 * 1000;
-    self.intervalBetweenRetry = 10 * 1000;
+    self.refreshInterval = 30 * 1000;
     self.userAgent = config.brand + '/3.4 (iPhone; iOS 9.2.1; Scale/2.00)';
 }
 MyQPlatform.prototype.login = function(onSuccess, onFail) {
@@ -62,7 +61,7 @@ MyQPlatform.prototype.login = function(onSuccess, onFail) {
                 }
             } else if(onSuccess) {
                 self.SecurityToken = body.SecurityToken;
-                self.log.info('SecurityToken: [%s]', self.SecurityToken);
+                self.log.debug('SecurityToken: [%s]', self.SecurityToken);
                 self.getuser.call(self, onSuccess, function(returnCode, errorMessage) {
                     if(onFail) {
                         onFail.call(self, returnCode, errorMessage);
@@ -92,7 +91,7 @@ MyQPlatform.prototype.retry_login = function(onSuccess) {
     self.login(onSuccess, function() {
         setTimeout(function(returnCode, errorMessage) {
             self.login.call(self, onSuccess, onFail);
-        }.bind(self), self.intervalBetweenRetry);
+        }.bind(self), self.refreshInterval);
     });
 }
 MyQPlatform.prototype.getuser = function(onSuccess, onFail) {
@@ -110,8 +109,8 @@ MyQPlatform.prototype.getuser = function(onSuccess, onFail) {
             if (json.ReturnCode === '0') {
                 self.BrandId = json.BrandId;
                 self.BrandName = json.BrandName;
-                self.log.info('BrandId:[%s]', self.BrandId);
-                self.log.info('BrandName:[%s]', self.BrandName);
+                self.log.debug('BrandId:[%s]', self.BrandId);
+                self.log.debug('BrandName:[%s]', self.BrandName);
                 if(onSuccess) {
                     onSuccess.call(self);
                 }
@@ -134,7 +133,7 @@ MyQPlatform.prototype.getuser = function(onSuccess, onFail) {
 
 MyQPlatform.prototype.getDevices = function(onSuccess, onFail) {
     var self = this;
-    self.log.info('[%s]: retrieving devices', moment().format('YYYYMMDDHHmmss.SSS'));
+    self.log.debug('[%s]: retrieving devices', moment().format('YYYYMMDDHHmmss.SSS'));
     if(!self.SecurityToken && onFail) {
         onFail.call(self);
         return;
@@ -211,11 +210,11 @@ MyQPlatform.prototype.getDeviceAttribute = function(deviceid, attributename, onS
             if(json.ReturnCode === '0') {
                 self.log.debug('[%s] get device attribute finished. id[%s], attributename[%s], value[%s], updatetime[%s]',
                 moment().format('YYYYMMDDHHmmss.SSS'), deviceid, attributename, json.AttributeValue, json.UpdatedTime);
-                onSuccess.call(self, json.AttributeValue, json.UpdatedTime);
+                onSuccess(json.AttributeValue, json.UpdatedTime);
             } else {
                 self.log.error('[%s]:retrieving device attribute [%s] [%s] failed, response body is [%s]', moment().format('YYYYMMDDHHmmss.SSS'), deviceid, attributename, body);
                 if(onFail) {
-                    onFail.call(self, error, response);
+                    onFail(error, response);
                 }
                 else {
                     self.retry_login(onSuccess);
@@ -224,7 +223,7 @@ MyQPlatform.prototype.getDeviceAttribute = function(deviceid, attributename, onS
         } else {
             self.log.error('[%s]: retrieving device attribute [%s] [%s] failed, error is [%s], response is [%s]', moment().format('YYYYMMDDHHmmss.SSS'), deviceid, attributename, error, response);
             if(onFail) {
-                onFail.call(self, error, response);
+                onFail(error, response);
             } else {
                 self.retry_login(onSuccess);
             }
@@ -250,7 +249,7 @@ MyQPlatform.prototype.sendCommand = function(command, device_id, state, callback
     }, function (error, response, body) {
         if (!error && response.statusCode == 200 && json.ReturnCode === '0') {
             self.log.info('[%s]: sendcommand successed', moment().format('YYYYMMDDHHmmss.SSS'));
-            self.log.info(body);
+            callback(body);
         } else {
             self.log.error('[%s]: send command failed.', moment().format('YYYYMMDDHHmmss.SSS'));
             self.log.error(error);
@@ -307,9 +306,11 @@ MyQPlatform.prototype.deviceStateTimer = function() {
         clearTimeout(self.timer);
         self.timer = null;
     }
-    self.getDevices(function(door_devices) {
+    self.getDevices(function(door_devices, light_devices, gateway_devices) {
         self.foundAccessories.forEach(function(accessory) {
             accessory.updateDevice(door_devices);
+            accessory.updateDevice(light_devices);
+            accessory.updateDevice(gateway_devices);
         });
         self.timer = setTimeout(self.deviceStateTimer.bind(self), self.refreshInterval);
     });
@@ -319,44 +320,10 @@ MyQPlatform.prototype.dateTimeToDisplay = function(unixtime) {
     return moment(unixtime, 'x').fromNow()
 }
 
-function MyQLightAccessory(platform, device) {
-    var self = this;
-    self.platform = platform;
-    self.device = device;
-    self.desc = device.SerialNumber;
-    device.Attributes.forEach(function(attribute) {
-        if(attribute.AttributeDisplayName === 'desc') {
-            self.desc = attribute.Value;
-        } else if(attribute.AttributeDisplayName === 'fwver') {
-            self.fwver = attribute.Value;
-        }
-    });
-    self.name = self.desc;
-    self.log = platform.log;
-    self.log.info('[%s]: found Gateway Device, deviceid=%s', moment().format('YYYYMMDDHHmmss.SSS'), self.device.MyQDeviceId);
-}
-MyQLightAccessory.prototype.getServices = function() {
-    var self = this;
-    return [new Service.AccessoryInformation()
-        .setCharacteristic(Characteristic.Name, self.desc)
-        .setCharacteristic(Characteristic.Manufacturer, self.platform.BrandName)
-        .setCharacteristic(Characteristic.Model, self.platform.BrandName)
-        .setCharacteristic(Characteristic.SerialNumber, self.device.SerialNumber)
-        .setCharacteristic(Characteristic.FirmwareRevision, self.fwver || '1.0.0')
-        .setCharacteristic(Characteristic.HardwareRevision, '1.0.0')];
-}
-MyQLightAccessory.prototype.updateDevice = function(devices) {
-    var self = this;
-    for(var i=0; i< devices.length;i++){
-        if(self.device.MyQDeviceId === devices[i].MyQDeviceId) {
-        }
-    }
-}
-
 function MyQAccessory(platform, device) {
     var self = this;
+    platform.log.debug(device);
     self.init.call(self, platform, device)
-    self.refreshState.call(self);
 }
 MyQAccessory.prototype.init = function(platform, device) {
     var self = this;
@@ -364,10 +331,260 @@ MyQAccessory.prototype.init = function(platform, device) {
     self.platform = platform;
     self.log = platform.log;
     self.currentState = '';
-    self.desc = device.MyQDeviceId;
+    self.name = device.SerialNumber;
     self.updateDevice([device]);
 }
-MyQAccessory.prototype.updateDoorState = function(doorstate, updateTime) {
+
+MyQAccessory.prototype.descState = function(state) {
+    switch(state) {
+        case Characteristic.CurrentDoorState.OPEN:
+        return 'Open';
+        case Characteristic.CurrentDoorState.CLOSED:
+        return 'Closed';
+        case Characteristic.CurrentDoorState.STOPPED:
+        return 'Stopped';
+        case Characteristic.CurrentDoorState.OPENING:
+        return 'Opening';
+        case Characteristic.CurrentDoorState.CLOSING:
+        return 'Closing';
+        default:
+        return state;
+    }
+}
+
+MyQAccessory.prototype.updateDevice = function(devices) {
+    var self = this;
+    var isMe = false;
+    for(var i=0; i< devices.length;i++){
+        if(!self.device || self.device.MyQDeviceId === devices[i].MyQDeviceId) {
+            self.device = devices[i];
+            isMe = true;
+            break;
+        }
+    }
+    if(!isMe || !self.device) {
+        return false;
+    }
+    self.device.Attributes.forEach(function(attribute) {
+        if (attribute.AttributeDisplayName === 'doorstate') {
+            self.doorstate = attribute.Value;
+            self.doorstateUpdateTime = attribute.UpdatedTime;
+        } else if (attribute.AttributeDisplayName === 'lightstate') {
+            self.lightstate = attribute.Value;
+            self.lightstateUpdateTime = attribute.UpdatedTime;
+        } else if(attribute.AttributeDisplayName === 'desc') {
+            self.name = attribute.Value;
+        } else if(attribute.AttributeDisplayName === 'isunattendedopenallowed') {
+            self.isunattendedopenallowed = attribute.Value === '1';
+        } else if(attribute.AttributeDisplayName === 'isunattendedcloseallowed') {
+            self.isunattendedcloseallowed = attribute.Value === '1';
+        } else if(attribute.AttributeDisplayName === 'fwver') {
+            self.fwver = attribute.Value;
+        }
+    });
+    return true;
+}
+
+MyQAccessory.prototype.getServices = function() {
+    var self = this;
+    var services = [];
+    var service = new Service.AccessoryInformation();
+    service.setCharacteristic(Characteristic.Name, self.name)
+        .setCharacteristic(Characteristic.Manufacturer, self.platform.BrandName)
+        .setCharacteristic(Characteristic.Model, self.platform.BrandName)
+        .setCharacteristic(Characteristic.SerialNumber, self.device.SerialNumber || '')
+        .setCharacteristic(Characteristic.FirmwareRevision, self.fwver || '1.0.0')
+        .setCharacteristic(Characteristic.HardwareRevision, self.hwver || '1.0.0');
+    services.push(service);
+    if(self.service) {
+        services.push(self.service);
+    }
+    return services;
+}
+
+function MyQGateWayAccessory(platform, device) {
+    MyQAccessory.call(this, platform, device);
+    var self = this;
+    self.log.info('[%s]: found Gateway Device, deviceid=%s', moment().format('YYYYMMDDHHmmss.SSS'), self.device.MyQDeviceId);
+}
+
+util.inherits(MyQGateWayAccessory, MyQAccessory);
+
+MyQGateWayAccessory.prototype.init = function(platform, device) {
+    var self = this;
+    MyQGateWayAccessory.super_.prototype.init.call(self, platform, device);
+}
+
+MyQGateWayAccessory.prototype.updateDevice = function(devices) {
+    var self = this;
+    MyQGateWayAccessory.super_.prototype.updateDevice.call(self, devices);
+}
+
+function MyQLightAccessory(platform, device) {
+    MyQAccessory.call(this, platform, device);
+    var self = this;
+    self.log.info('[%s]: found Light Device, deviceid=%s', moment().format('YYYYMMDDHHmmss.SSS'), self.device.MyQDeviceId);
+}
+util.inherits(MyQLightAccessory, MyQAccessory);
+
+MyQLightAccessory.prototype.init = function(platform, device) {
+    var self = this;
+    MyQLightAccessory.super_.prototype.init.call(self, platform, device);
+    
+    self.service = new Service.Switch(self.name);
+    self.service.addCharacteristic(LastUpdate);
+
+    
+    self.service.getCharacteristic(Characteristic.On).value = self.currentState;
+    self.service.getCharacteristic(Characteristic.Name).value = self.name;
+    self.service.getCharacteristic(LastUpdate).value = self.platform.dateTimeToDisplay(self.stateUpdatedTime);
+
+    self.service.getCharacteristic(LastUpdate).on('get', function(cb) {
+        cb(null, self.platform.dateTimeToDisplay(self.stateUpdatedTime));
+    }.bind(self));
+
+    self.service
+        .getCharacteristic(Characteristic.On)
+        .on('get', function(callback) {
+            self.log.debug("[%s]: Getting current light state...[%s]", moment().format('YYYYMMDDHHmmss.SSS'), self.currentState);
+            callback(null, self.currentState);
+        }.bind(self))
+        .on('set', function(state, callback) {
+            self.platform['light_' + (state ? 'on':'off')].call(self.platform, self.device.MyQDeviceId, function(){
+                self.currentState = state;
+                callback(null); 
+            });
+        });
+}
+
+MyQLightAccessory.prototype.updateDevice = function(devices) {
+    var self = this;
+    if(MyQLightAccessory.super_.prototype.updateDevice.call(self, devices) && self.lightstateUpdateTime) {
+        if(self.stateUpdatedTime !== self.lightstateUpdateTime) {
+            self.stateUpdatedTime = self.lightstateUpdateTime;
+            self.service.getCharacteristic(LastUpdate).setValue(self.platform.dateTimeToDisplay(self.stateUpdatedTime));
+        }
+        if(self.currentState !== self.lightstate) {
+            self.currentState = self.lightstate === '1';
+            self.service.getCharacteristic(Characteristic.On).setValue(self.currentState);
+        }
+    }
+}
+
+function MyQDoorAccessory(platform, device) {
+    MyQAccessory.call(this, platform, device);
+}
+util.inherits(MyQDoorAccessory, MyQAccessory);
+
+MyQDoorAccessory.prototype.updateDevice = function(devices) {
+    var self = this;
+
+    if(MyQDoorAccessory.super_.prototype.updateDevice.call(self, devices)&& self.doorstateUpdateTime) {
+        self.updateDoorState.call(self, self.doorstate, self.doorstateUpdateTime);
+        self.log.debug('[%s]: Door[%s] Door State=[%s], Updated time=[%s], isunattendedopenallowed=[%s], isunattendedcloseallowed=[%s]',
+            moment().format('YYYYMMDDHHmmss.SSS'),
+            self.name,
+            self.descState(self.currentState),
+            self.platform.dateTimeToDisplay(self.stateUpdatedTime),
+            self.isunattendedopenallowed,
+            self.isunattendedcloseallowed
+        );
+    }
+}
+MyQDoorAccessory.prototype.init = function(platform, device) {
+    var self = this;
+
+    MyQDoorAccessory.super_.prototype.init.call(self, platform, device);
+
+    if (typeof self.isunattendedopenallowed === 'undefined'){
+        self.isunattendedopenallowed = false;
+    }
+    if (typeof self.isunattendedcloseallowed === 'undefined') {
+        self.isunattendedcloseallowed = false;
+    }
+
+    self.targetState = self.currentState;
+
+    self.log.info('[%s]: found GarageDoorOpener, deviceid=%s', moment().format('YYYYMMDDHHmmss.SSS'), self.device.MyQDeviceId);
+
+    self.service = new Service.GarageDoorOpener(self.name);
+    self.service.addCharacteristic(LastUpdate);
+
+    
+    self.service.getCharacteristic(Characteristic.CurrentDoorState).value = self.currentState;
+    self.service.getCharacteristic(Characteristic.TargetDoorState).value = self.currentState;
+    self.service.getCharacteristic(LastUpdate).value = self.platform.dateTimeToDisplay(self.stateUpdatedTime);
+
+    self.service.getCharacteristic(LastUpdate).on('get', function(cb) {
+        cb(null, self.platform.dateTimeToDisplay(self.stateUpdatedTime));
+    }.bind(self));
+
+    self.service
+        .getCharacteristic(Characteristic.CurrentDoorState)
+        .on('get', function(callback) {
+            self.log.debug("[%s]: Getting current door state...[%s]", moment().format('YYYYMMDDHHmmss.SSS'), self.currentState);
+            callback(null, self.currentState);
+        }.bind(self));
+    
+    self.service
+        .getCharacteristic(Characteristic.TargetDoorState)
+        .on('get', function(callback) {
+            callback(null, self.targetState);
+        }.bind(self))
+        .on('set', self.setDoorState.bind(self));
+}
+
+MyQDoorAccessory.prototype.setDoorState = function(state, callback) {
+    var self = this;
+    self.log.warn("[%s]: Set state to %s", moment().format('YYYYMMDDHHmmss.SSS'), state);
+    
+    if(self.targetState !== state) {
+        self.targetState = state;
+        if(self.service) {
+            self.service.getCharacteristic(Characteristic.TargetDoorState).setValue(self.targetState);
+        }
+    }
+    
+    if(state === Characteristic.TargetDoorState.OPEN) {
+        if (!self.isunattendedopenallowed) {
+            self.log.warn('[%s]: unattended open not allowed', moment().format('YYYYMMDDHHmmss.SSS'));
+            callback(new Error('unattended open not allowed'));
+        } else if(self.currentState === Characteristic.CurrentDoorState.CLOSED) {
+            self.warn('opening door');
+            self.currentState = Characteristic.CurrentDoorState.OPENING;
+            self.platform.door_open.call(self.platform, self.device.MyQDeviceId, function(){
+                self.updateDoorState.call(self, '4', moment().format('x'));
+                callback(null); 
+            });
+        } else if(self.currentState === Characteristic.CurrentDoorState.OPEN
+            || self.currentState === Characteristic.CurrentDoorState.OPENING) {
+            callback(null);
+        } else {
+            self.log.warn('[%s]: Can not open door, current state is:[%s]', moment().format('YYYYMMDDHHmmss.SSS'), self.currentState);
+            callback(new Error('Can not open door, current state not allowed'));
+        }
+    } else if (state === Characteristic.TargetDoorState.CLOSED) {
+        if (!self.isunattendedcloseallowed) {
+            self.log.warn('[%s]: unattended close not allowed', moment().format('YYYYMMDDHHmmss.SSS'));
+            callback(new Error('unattended open not allowed'));
+        } else if(self.currentState === Characteristic.CurrentDoorState.OPEN) {
+            self.currentState = Characteristic.CurrentDoorState.CLOSING;
+            self.log.warn('[%s]: closing door', moment().format('YYYYMMDDHHmmss.SSS'));
+            self.platform.door_close.call(self.platform, self.device.MyQDeviceId, function(){
+                self.updateDoorState.call(self, '5', moment().format('x'));
+                callback(null); 
+            });
+        } else if(self.currentState === Characteristic.CurrentDoorState.CLOSED ||
+                    self.currentState === Characteristic.CurrentDoorState.CLOSING) {
+            callback(null);
+        } else {
+            self.log.warn('[%s]: Can not close door, current state is:[%s]', moment().format('YYYYMMDDHHmmss.SSS'), self.currentState);
+            callback(new Error('Can not close door, current state not allowed'));
+        }
+    }
+}
+
+MyQDoorAccessory.prototype.updateDoorState = function(doorstate, updateTime) {
     var self = this;
     var state = self.currentState;
 
@@ -398,236 +615,18 @@ MyQAccessory.prototype.updateDoorState = function(doorstate, updateTime) {
         self.service.getCharacteristic(LastUpdate).setValue(self.platform.dateTimeToDisplay(updateTime));
     }
     self.stateUpdatedTime = updateTime;
-}
-
-MyQAccessory.prototype.descState = function(state) {
-    switch(state) {
-        case Characteristic.CurrentDoorState.OPEN:
-        return 'Open';
-        case Characteristic.CurrentDoorState.CLOSED:
-        return 'Closed';
-        case Characteristic.CurrentDoorState.STOPPED:
-        return 'Stopped';
-        case Characteristic.CurrentDoorState.OPENING:
-        return 'Opening';
-        case Characteristic.CurrentDoorState.CLOSING:
-        return 'Closing';
-        default:
-        return state;
-    }
-}
-MyQAccessory.prototype.updateDevice = function(devices) {
-    var self = this;
-    for(var i=0; i< devices.length;i++){
-        if(!self.device || (self.device.MyQDeviceId === devices[i].MyQDeviceId)) {
-            self.device = devices[i];
-            break;
-        }
-    }
-}
-MyQAccessory.prototype.refreshState = function() {
-    var self = this;
-    var refreshSteps = [0, 1 * 1000, 3 * 1000, 5 * 1000, 10 * 1000, 20 * 1000, 30 * 1000, 60 * 1000];
+    
     if(self.refreshTimer) {
         clearTimeout(self.refreshTimer);
         self.refreshTimer = null;
     }
-    self.platform.getDeviceAttribute.call(self.platform, self.device.MyQDeviceId, 'doorstate', function(value, updatetime) {
-        self.updateDoorState.call(self, value, updatetime);
-        var r = moment() - self.stateUpdatedTime;
-        for(var i = refreshSteps.length - 1; i >= 0; i--) {
-            if(r >= refreshSteps[i]) {
-                self.refreshTimer = setTimeout(self.refreshState.bind(self), refreshSteps[i]);
-                return;
-            }
-        }
-    });
-}
-
-MyQAccessory.prototype.setState = function(state, callback) {
-    var self = this;
-    self.log.warn("[%s]: Set state to %s", moment().format('YYYYMMDDHHmmss.SSS'), state);
-    
-    if(self.targetDoorState !== state) {
-        self.targetDoorState = state;
-        if(self.service) {
-            self.service.getCharacteristic(Characteristic.TargetDoorState).setValue(self.targetDoorState);
-        }
+    if(moment().format('x') - self.stateUpdatedTime < 10000) {
+        self.log.debug('[%s] state changed in [%s] seconds ago, refreshing. lastupdatetime=[%s]', moment().format('YYYYMMDDHHmmss.SSS'), (moment().format('x') - self.stateUpdatedTime) / 1000, self.stateUpdatedTime);
+        self.refreshTimer = setTimeout(function() {
+            self.platform.getDeviceAttribute.call(self.platform, self.device.MyQDeviceId, 'doorstate', function(value, updatetime) {
+                self.updateDoorState.call(self, value, updatetime);
+            }.bind(self));
+        }.bind(self), 1000);
     }
-    
-    if(state === Characteristic.TargetDoorState.OPEN) {
-        if (!self.isunattendedopenallowed) {
-            self.log.warn('[%s]: unattended open not allowed', moment().format('YYYYMMDDHHmmss.SSS'));
-            callback(new Error('unattended open not allowed'));
-        } else if(self.currentState === Characteristic.CurrentDoorState.CLOSED) {
-            self.log('opening door');
-            self.currentState = Characteristic.CurrentDoorState.OPENING;
-            self.platform.door_open.call(self.platform, self.device.MyQDeviceId, function(){
-                self.updateDoorState.call(self, '4', moment().format('x'));
-                callback(null); 
-                self.refreshState.call(self);
-            });
-        } else if(self.currentState === Characteristic.CurrentDoorState.OPENING) {
-            callback(null);
-        } else {
-            self.log.warn('[%s]: Can not open door, current state is:[%s]', moment().format('YYYYMMDDHHmmss.SSS'), self.currentState);
-            callback(new Error('Can not open door, current state not allowed'));
-        }
-    } else if (state === Characteristic.TargetDoorState.CLOSED) {
-        if (!self.isunattendedcloseallowed) {
-            self.log.warn('[%s]: unattended close not allowed', moment().format('YYYYMMDDHHmmss.SSS'));
-            callback(new Error('unattended open not allowed'));
-        } else if(self.currentState === Characteristic.CurrentDoorState.OPEN) {
-            self.currentState = Characteristic.CurrentDoorState.CLOSING;
-            self.log.warn('[%s]: closing door', moment().format('YYYYMMDDHHmmss.SSS'));
-            self.platform.door_close.call(self.platform, self.device.MyQDeviceId, function(){
-                 self.updateDoorState.call(self, '5', moment().format('x'));
-                callback(null); 
-                self.refreshState.call(self);
-            });
-        } else if(self.currentState === Characteristic.CurrentDoorState.CLOSING) {
-            callback(null);
-        } else {
-            self.log.warn('[%s]: Can not close door, current state is:[%s]', moment().format('YYYYMMDDHHmmss.SSS'), self.currentState);
-            callback(new Error('Can not close door, current state not allowed'));
-        }
-    }
-}
-
-MyQAccessory.prototype.getServices = function() {
-    var self = this;
-    var services = [];
-    var service = new Service.AccessoryInformation();
-    service.setCharacteristic(Characteristic.Name, self.desc)
-        .setCharacteristic(Characteristic.Manufacturer, self.platform.BrandName)
-        .setCharacteristic(Characteristic.Model, self.platform.BrandName)
-        .setCharacteristic(Characteristic.SerialNumber, self.device.SerialNumber)
-        .setCharacteristic(Characteristic.FirmwareRevision, '1.0.0')
-        .setCharacteristic(Characteristic.HardwareRevision, '1.0.0');
-    services.push(service);
-    services.push(self.service);
-    return services;
-}
-
-function MyQGateWayAccessory(platform, device) {
-    MyQAccessory.call(this, platform, device);
-    var self = this;
-    self.log.info('[%s]: found Gateway Device, deviceid=%s', moment().format('YYYYMMDDHHmmss.SSS'), self.device.MyQDeviceId);
-}
-
-util.inherits(MyQGateWayAccessory, MyQAccessory);
-
-MyQGateWayAccessory.prototype.init = function(platform, device) {
-    var self = this;
-    MyQGateWayAccessory.super_.prototype.init.call(self, platform, device);
-    self.desc = device.SerialNumber;
-}
-
-
-MyQGateWayAccessory.prototype.getServices = function() {
-    var self = this;
-    return [new Service.AccessoryInformation()
-        .setCharacteristic(Characteristic.Name, self.desc)
-        .setCharacteristic(Characteristic.Manufacturer, self.platform.BrandName)
-        .setCharacteristic(Characteristic.Model, self.platform.BrandName)
-        .setCharacteristic(Characteristic.SerialNumber, self.device.SerialNumber)
-        .setCharacteristic(Characteristic.FirmwareRevision, self.fwver || '1.0.0')
-        .setCharacteristic(Characteristic.HardwareRevision, '1.0.0')];
-}
-MyQGateWayAccessory.prototype.updateDevice = function(devices) {
-    var self = this;
-    MyQGateWayAccessory.super_.prototype.updateDevice.call(self, devices);
-
-    if(!self.device) {
-        return;
-    }
-    self.device.Attributes.forEach(function(attribute) {
-        if(attribute.AttributeDisplayName === 'desc') {
-            self.desc = attribute.Value;
-        } else if(attribute.AttributeDisplayName === 'fwver') {
-            self.fwver = attribute.Value;
-        }
-    });
-    self.name = self.desc;
-}
-MyQGateWayAccessory.prototype.refreshState = function(){
-    this.log.info('Will not refresh Gateway device state');
-}
-
-
-function MyQDoorAccessory(platform, device) {
-    MyQAccessory.call(this, platform, device);
-}
-util.inherits(MyQDoorAccessory, MyQAccessory);
-
-MyQDoorAccessory.prototype.updateDevice = function(devices) {
-    var self = this;
-
-    MyQDoorAccessory.super_.prototype.updateDevice.call(self, devices);
-
-    if(!self.device) {
-        return;
-    }
-    self.device.Attributes.forEach(function(attribute) {
-        if (attribute.AttributeDisplayName === 'doorstate') {
-            self.updateDoorState.call(self, attribute.Value, attribute.UpdatedTime);
-        } else if(attribute.AttributeDisplayName === 'desc') {
-            self.desc = attribute.Value;
-        } else if(attribute.AttributeDisplayName === 'isunattendedopenallowed') {
-            self.isunattendedopenallowed = attribute.Value === '1';
-        } else if(attribute.AttributeDisplayName === 'isunattendedcloseallowed') {
-            self.isunattendedcloseallowed = attribute.Value === '1';
-        }
-    });
-    self.log.info('[%s]: Door[%s] Door State=[%s], Updated time=[%s], isunattendedopenallowed=[%s], isunattendedcloseallowed=[%s]',
-        moment().format('YYYYMMDDHHmmss.SSS'),
-        self.desc,
-        self.descState(self.currentState),
-        self.platform.dateTimeToDisplay(self.stateUpdatedTime),
-        self.isunattendedopenallowed,
-        self.isunattendedcloseallowed
-    );
-}
-MyQDoorAccessory.prototype.init = function(platform, device) {
-    var self = this;
-
-    MyQDoorAccessory.super_.prototype.init.call(self, platform, device);
-
-    if (typeof self.isunattendedopenallowed === 'undefined'){
-        self.isunattendedopenallowed = false;
-    }
-    if (typeof self.isunattendedcloseallowed === 'undefined') {
-        self.isunattendedcloseallowed = false;
-    }
-
-    self.targetDoorState = self.currentState;
-
-    self.log.info('[%s]: found GarageDoorOpener, deviceid=%s', moment().format('YYYYMMDDHHmmss.SSS'), self.device.MyQDeviceId);
-
-    self.service = new Service.GarageDoorOpener(self.desc);
-    self.service.addCharacteristic(LastUpdate);
-
-    self.name = self.desc;
-    self.service.getCharacteristic(Characteristic.CurrentDoorState).value = self.currentState;
-    self.service.getCharacteristic(Characteristic.TargetDoorState).value = self.currentState;
-    self.service.getCharacteristic(LastUpdate).value = self.platform.dateTimeToDisplay(self.stateUpdatedTime);
-
-    self.service.getCharacteristic(LastUpdate).on('get', function(cb) {
-        cb(null, self.platform.dateTimeToDisplay(self.stateUpdatedTime));
-    }.bind(self));
-
-    self.service
-        .getCharacteristic(Characteristic.CurrentDoorState)
-        .on('get', function(callback) {
-            self.log.info("[%s]: Getting current state...[%s]", moment().format('YYYYMMDDHHmmss.SSS'), self.currentState);
-            callback(null, self.currentState);
-        }.bind(self));
-    
-    self.service
-        .getCharacteristic(Characteristic.TargetDoorState)
-        .on('get', function(callback) {
-            callback(null, self.targetDoorState);
-        }.bind(self))
-        .on('set', self.setState.bind(self));
 }
 
