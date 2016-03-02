@@ -247,8 +247,8 @@ MyQPlatform.prototype.sendCommand = function(command, device_id, state, callback
             AttributeValue: state,
         }
     }, function (error, response, body) {
-        if (!error && response.statusCode == 200 && json.ReturnCode === '0') {
-            self.log.info('[%s]: sendcommand successed', moment().format('YYYYMMDDHHmmss.SSS'));
+        if (!error && response.statusCode == 200 && body.ReturnCode === '0') {
+            self.log.info('[%s]: sendcommand successed, command=[%s],state=[%s]', moment().format('YYYYMMDDHHmmss.SSS'), command, state);
             callback(body);
         } else {
             self.log.error('[%s]: send command failed.', moment().format('YYYYMMDDHHmmss.SSS'));
@@ -429,12 +429,10 @@ util.inherits(MyQLightAccessory, MyQAccessory);
 
 MyQLightAccessory.prototype.init = function(platform, device) {
     var self = this;
-    MyQLightAccessory.super_.prototype.init.call(self, platform, device);
-    
     self.service = new Service.Switch(self.name);
     self.service.addCharacteristic(LastUpdate);
+    MyQLightAccessory.super_.prototype.init.call(self, platform, device);
 
-    
     self.service.getCharacteristic(Characteristic.On).value = self.currentState;
     self.service.getCharacteristic(Characteristic.Name).value = self.name;
     self.service.getCharacteristic(LastUpdate).value = self.platform.dateTimeToDisplay(self.stateUpdatedTime);
@@ -450,24 +448,40 @@ MyQLightAccessory.prototype.init = function(platform, device) {
             callback(null, self.currentState);
         }.bind(self))
         .on('set', function(state, callback) {
-            self.platform['light_' + (state ? 'on':'off')].call(self.platform, self.device.MyQDeviceId, function(){
-                self.currentState = state;
-                callback(null); 
-            });
-        });
+            if(state !== self.currentState) {
+                self.log.debug("[%s]: set current light state...[%s]", moment().format('YYYYMMDDHHmmss.SSS'), state);
+                self.platform['light_' + (state ? 'on':'off')].call(self.platform, self.device.MyQDeviceId, function(body){
+                    self.log.debug(body);
+                    self.currentState = state;
+					self.stateUpdatedTime = moment().format('x');
+
+					self.service.getCharacteristic(Characteristic.On).setValue(self.currentState);
+					self.service.getCharacteristic(LastUpdate).setValue(self.platform.dateTimeToDisplay(self.stateUpdatedTime));
+                    callback(null);
+                });
+            } else {
+                callback(null);
+            }
+        }.bind(self));
 }
 
 MyQLightAccessory.prototype.updateDevice = function(devices) {
     var self = this;
     if(MyQLightAccessory.super_.prototype.updateDevice.call(self, devices) && self.lightstateUpdateTime) {
-        if(self.stateUpdatedTime !== self.lightstateUpdateTime) {
+        if(self.stateUpdatedTime !== self.lightstateUpdateTime && self.service) {
             self.stateUpdatedTime = self.lightstateUpdateTime;
             self.service.getCharacteristic(LastUpdate).setValue(self.platform.dateTimeToDisplay(self.stateUpdatedTime));
         }
-        if(self.currentState !== self.lightstate) {
-            self.currentState = self.lightstate === '1';
+        if(self.currentState !== self.lightstate && self.service) {
+            self.currentState = self.lightstate === '1' ? true:false;
             self.service.getCharacteristic(Characteristic.On).setValue(self.currentState);
         }
+        self.log.debug('[%s]: Light[%s] Light State=[%s], Updated time=[%s]',
+            moment().format('YYYYMMDDHHmmss.SSS'),
+            self.name,
+            self.lightstate === '1' ? 'on':'off',
+            self.platform.dateTimeToDisplay(self.stateUpdatedTime)
+        );
     }
 }
 
@@ -494,6 +508,9 @@ MyQDoorAccessory.prototype.updateDevice = function(devices) {
 MyQDoorAccessory.prototype.init = function(platform, device) {
     var self = this;
 
+    self.service = new Service.GarageDoorOpener(self.name);
+    self.service.addCharacteristic(LastUpdate);
+
     MyQDoorAccessory.super_.prototype.init.call(self, platform, device);
 
     if (typeof self.isunattendedopenallowed === 'undefined'){
@@ -507,10 +524,6 @@ MyQDoorAccessory.prototype.init = function(platform, device) {
 
     self.log.info('[%s]: found GarageDoorOpener, deviceid=%s', moment().format('YYYYMMDDHHmmss.SSS'), self.device.MyQDeviceId);
 
-    self.service = new Service.GarageDoorOpener(self.name);
-    self.service.addCharacteristic(LastUpdate);
-
-    
     self.service.getCharacteristic(Characteristic.CurrentDoorState).value = self.currentState;
     self.service.getCharacteristic(Characteristic.TargetDoorState).value = self.currentState;
     self.service.getCharacteristic(LastUpdate).value = self.platform.dateTimeToDisplay(self.stateUpdatedTime);
