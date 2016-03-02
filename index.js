@@ -563,7 +563,7 @@ MyQDoorAccessory.prototype.setDoorState = function(state, callback) {
             self.log.warn('[%s]: unattended open not allowed', moment().format('YYYYMMDDHHmmss.SSS'));
             callback(new Error('unattended open not allowed'));
         } else if(self.currentState === Characteristic.CurrentDoorState.CLOSED) {
-            self.warn('opening door');
+            self.log.warn('opening door');
             self.currentState = Characteristic.CurrentDoorState.OPENING;
             self.platform.door_open.call(self.platform, self.device.MyQDeviceId, function(){
                 self.updateDoorState.call(self, '4', moment().format('x'));
