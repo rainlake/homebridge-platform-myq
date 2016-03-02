@@ -453,10 +453,10 @@ MyQLightAccessory.prototype.init = function(platform, device) {
                 self.platform['light_' + (state ? 'on':'off')].call(self.platform, self.device.MyQDeviceId, function(body){
                     self.log.debug(body);
                     self.currentState = state;
-					self.stateUpdatedTime = moment().format('x');
+                    self.stateUpdatedTime = moment().format('x');
 
-					self.service.getCharacteristic(Characteristic.On).setValue(self.currentState);
-					self.service.getCharacteristic(LastUpdate).setValue(self.platform.dateTimeToDisplay(self.stateUpdatedTime));
+                    self.service.getCharacteristic(Characteristic.On).setValue(self.currentState);
+                    self.service.getCharacteristic(LastUpdate).setValue(self.platform.dateTimeToDisplay(self.stateUpdatedTime));
                     callback(null);
                 });
             } else {
