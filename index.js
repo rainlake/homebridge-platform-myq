@@ -373,7 +373,9 @@ MyQAccessory.prototype.updateDevice = function(devices) {
             self.lightstate = attribute.Value;
             self.lightstateUpdateTime = attribute.UpdatedTime;
         } else if(attribute.AttributeDisplayName === 'desc') {
-            self.name = attribute.Value;
+            if(attribute.Value) {
+                self.name = attribute.Value;
+            }
         } else if(attribute.AttributeDisplayName === 'isunattendedopenallowed') {
             self.isunattendedopenallowed = attribute.Value === '1';
         } else if(attribute.AttributeDisplayName === 'isunattendedcloseallowed') {
@@ -602,39 +604,38 @@ MyQDoorAccessory.prototype.updateDoorState = function(doorstate, updateTime) {
     var state = self.currentState;
 
     if(updateTime < self.stateUpdatedTime && moment().format('x') - self.stateUpdatedTime < 30000) {
-        self.log.warn('[%s]: updatetime=%s, self.stateUpdatedTime=%s, now=%s, will do anything.', moment().format('YYYYMMDDHHmmss.SSS'), updateTime, self.stateUpdatedTime, moment().format('x'));
-        return;
-    }
+        self.log.warn('[%s]: updatetime=%s, self.stateUpdatedTime=%s, now=%s, will do nothing.', moment().format('YYYYMMDDHHmmss.SSS'), updateTime, self.stateUpdatedTime, moment().format('x'));
+    } else {
+        if(doorstate === '1' || doorstate === '9') {
+            state = Characteristic.CurrentDoorState.OPEN;
+        } else if(doorstate === '2') {
+            state = Characteristic.CurrentDoorState.CLOSED;
+        } else if(doorstate === '3') {
+            state = Characteristic.CurrentDoorState.STOPPED;
+        } else if (doorstate === '4' ||
+            (doorstate === '8' && self.currentState === Characteristic.CurrentDoorState.CLOSED)) {
+            state = Characteristic.CurrentDoorState.OPENING;
+        } else if (doorstate === '5' ||
+            (doorstate === '8' && self.currentState === Characteristic.CurrentDoorState.OPEN)) {
+            state = Characteristic.CurrentDoorState.CLOSING;
+        }
+        if(state !== self.currentState && self.service) {
+            self.service.getCharacteristic(Characteristic.CurrentDoorState).setValue(state);
+        }
+        self.currentState = state;
 
-    if(doorstate === '1' || doorstate === '9') {
-        state = Characteristic.CurrentDoorState.OPEN;
-    } else if(doorstate === '2') {
-        state = Characteristic.CurrentDoorState.CLOSED;
-    } else if(doorstate === '3') {
-        state = Characteristic.CurrentDoorState.STOPPED;
-    } else if (doorstate === '4' ||
-        (doorstate === '8' && self.currentState === Characteristic.CurrentDoorState.CLOSED)) {
-        state = Characteristic.CurrentDoorState.OPENING;
-    } else if (doorstate === '5' ||
-        (doorstate === '8' && self.currentState === Characteristic.CurrentDoorState.OPEN)) {
-        state = Characteristic.CurrentDoorState.CLOSING;
+        if(updateTime !== self.stateUpdatedTime && self.service) {
+            self.service.getCharacteristic(LastUpdate).setValue(self.platform.dateTimeToDisplay(updateTime));
+        }
+        self.stateUpdatedTime = updateTime;
     }
-    if(state !== self.currentState && self.service) {
-        self.service.getCharacteristic(Characteristic.CurrentDoorState).setValue(state);
-    }
-    self.currentState = state;
-
-    if(updateTime !== self.stateUpdatedTime && self.service) {
-        self.service.getCharacteristic(LastUpdate).setValue(self.platform.dateTimeToDisplay(updateTime));
-    }
-    self.stateUpdatedTime = updateTime;
     
     if(self.refreshTimer) {
         clearTimeout(self.refreshTimer);
         self.refreshTimer = null;
     }
     if(moment().format('x') - self.stateUpdatedTime < 10000) {
-        self.log.debug('[%s] state changed in [%s] seconds ago, refreshing. lastupdatetime=[%s]', moment().format('YYYYMMDDHHmmss.SSS'), (moment().format('x') - self.stateUpdatedTime) / 1000, self.stateUpdatedTime);
+        self.log.debug('[%s] state changed [%s] seconds ago, refreshing. lastupdatetime=[%s]', moment().format('YYYYMMDDHHmmss.SSS'), (moment().format('x') - self.stateUpdatedTime) / 1000, self.stateUpdatedTime);
         self.refreshTimer = setTimeout(function() {
             self.platform.getDeviceAttribute.call(self.platform, self.device.MyQDeviceId, 'doorstate', function(value, updatetime) {
                 self.updateDoorState.call(self, value, updatetime);
