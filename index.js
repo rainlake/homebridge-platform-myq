@@ -76,6 +76,9 @@ MyQPlatform.prototype.login = function(onSuccess, onFail) {
             self.log.error(error);
             self.log.error(response);
             self.log.error(body)
+            if(!body) {
+                body = {};
+            }
             if(onFail) {
                 onFail.call(self, body.ReturnCode, body.ErrorMessage);
             } else {
@@ -88,9 +91,9 @@ MyQPlatform.prototype.retry_login = function(onSuccess) {
     var self = this;
     self.log.warn('[%s]:retrying login.', moment().format('YYYYMMDDHHmmss.SSS'));
     
-    self.login(onSuccess, function() {
-        setTimeout(function(returnCode, errorMessage) {
-            self.login.call(self, onSuccess, onFail);
+    self.login(onSuccess, function(returnCode, errorMessage) {
+        setTimeout(function() {
+            self.retry_login.call(self, onSuccess);
         }.bind(self), self.refreshInterval);
     });
 }
@@ -124,6 +127,9 @@ MyQPlatform.prototype.getuser = function(onSuccess, onFail) {
             self.log.error(error);
             self.log.error(response);
             self.log.error(body)
+            if(!body) {
+                body = {};
+            }
             if(onFail) {
                 onFail.call(self, body.ReturnCode, body.ErrorMessage);
             }
@@ -355,7 +361,10 @@ MyQAccessory.prototype.descState = function(state) {
 MyQAccessory.prototype.updateDevice = function(devices) {
     var self = this;
     var isMe = false;
-    for(var i=0; i< devices.length;i++){
+    if(!devices) {
+        return false;
+    }
+    for(var i=0; i< devices.length; i++){
         if(!self.device || self.device.MyQDeviceId === devices[i].MyQDeviceId) {
             self.device = devices[i];
             isMe = true;
