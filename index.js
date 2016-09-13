@@ -292,9 +292,9 @@ MyQPlatform.prototype.accessories = function(callback) {
             light_devices.forEach(function(device) {
                 self.foundAccessories.push(new MyQLightAccessory(self, device));
             });
-            gateway_devices.forEach(function(device) {
-                self.foundAccessories.push(new MyQGateWayAccessory(self, device));
-            });
+            // gateway_devices.forEach(function(device) {
+            //     self.foundAccessories.push(new MyQGateWayAccessory(self, device));
+            //});
             callback(self.foundAccessories);
             self.timer = setTimeout(self.deviceStateTimer.bind(self), self.refreshInterval);
         }, function(returnCode, errorMessage) {
