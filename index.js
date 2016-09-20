@@ -287,14 +287,17 @@ MyQPlatform.prototype.accessories = function(callback) {
         self.getDevices.call(self, function(door_devices, light_devices, gateway_devices) {
             self.foundAccessories = [];
             door_devices.forEach(function(device) {
-                self.foundAccessories.push(new MyQDoorAccessory(self, device));
+                var accessory = new MyQDoorAccessory(self, device);
+                if(!self.config.ignoreDeviceWithoutDescription || accessory.isDescriptionSet) {
+                    self.foundAccessories.push(accessory);
+                }
             });
             light_devices.forEach(function(device) {
-                self.foundAccessories.push(new MyQLightAccessory(self, device));
+                var accessory = new MyQLightAccessory(self, device);
+                if(!self.config.ignoreDeviceWithoutDescription || accessory.isDescriptionSet) {
+                    self.foundAccessories.push(accessory);
+                }
             });
-            // gateway_devices.forEach(function(device) {
-            //     self.foundAccessories.push(new MyQGateWayAccessory(self, device));
-            //});
             callback(self.foundAccessories);
             self.timer = setTimeout(self.deviceStateTimer.bind(self), self.refreshInterval);
         }, function(returnCode, errorMessage) {
@@ -384,6 +387,7 @@ MyQAccessory.prototype.updateDevice = function(devices) {
         } else if(attribute.AttributeDisplayName === 'desc') {
             if(attribute.Value) {
                 self.name = attribute.Value;
+                self.isDescriptionSet = true;
             }
         } else if(attribute.AttributeDisplayName === 'isunattendedopenallowed') {
             self.isunattendedopenallowed = attribute.Value === '1';

@@ -3,11 +3,12 @@
     "description": "",
     "platforms": [
         {
-	  "platform": "MyQ",
-          "name": "MyQ Platform",
-	  "user": "user@example.com",
-	  "pass": "passw0rd",
-	  "brand": "Chamberlain"
-	} 
+            "platform": "MyQ",
+            "name": "MyQ Platform",
+            "user": "user@example.com",
+            "pass": "passw0rd",
+            "brand": "Chamberlain",
+            "ignoreDeviceWithoutDescription" : true
+        }
     ]
 }
