@@ -74,8 +74,8 @@ MyQPlatform.prototype.login = function(onSuccess, onFail) {
         else {
             self.log.error('Error while login');
             self.log.error(error);
-            self.log.error(response);
-            self.log.error(body)
+            if (response) self.log.error(response)
+            if (body) self.log.error(body)
             if(!body) {
                 body = {};
             }
@@ -125,8 +125,8 @@ MyQPlatform.prototype.getuser = function(onSuccess, onFail) {
         } else {
             self.log.error('error while get user');
             self.log.error(error);
-            self.log.error(response);
-            self.log.error(body)
+            if (response) self.log.error(response);
+            if (body) self.log.error(body);
             if(!body) {
                 body = {};
             }
@@ -259,8 +259,8 @@ MyQPlatform.prototype.sendCommand = function(command, device_id, state, callback
         } else {
             self.log.error('send command failed.');
             self.log.error(error);
-            self.log.error(response);
-            self.log.error(body);
+            if (response) self.log.error(response);
+            if (body) self.log.error(body);
         }
     });
 }
