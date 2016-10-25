@@ -90,7 +90,7 @@ MyQPlatform.prototype.login = function(onSuccess, onFail) {
 MyQPlatform.prototype.retry_login = function(onSuccess) {
     var self = this;
     self.log.warn('retrying login.');
-    
+
     self.login(onSuccess, function(returnCode, errorMessage) {
         setTimeout(function() {
             self.retry_login.call(self, onSuccess);
@@ -551,7 +551,7 @@ MyQDoorAccessory.prototype.init = function(platform, device) {
             self.log.debug("Getting current door state...[%s]", self.currentState);
             callback(null, self.currentState);
         }.bind(self));
-    
+
     self.service
         .getCharacteristic(Characteristic.TargetDoorState)
         .on('get', function(callback) {
@@ -563,24 +563,25 @@ MyQDoorAccessory.prototype.init = function(platform, device) {
 MyQDoorAccessory.prototype.setDoorState = function(state, callback) {
     var self = this;
     self.log.warn("Set state to %s", state);
-    
+
     if(self.targetState !== state) {
         self.targetState = state;
         if(self.service) {
             self.service.getCharacteristic(Characteristic.TargetDoorState).setValue(self.targetState);
         }
     }
-    
+
     if(state === Characteristic.TargetDoorState.OPEN) {
         if (!self.isunattendedopenallowed) {
             self.log.warn('unattended open not allowed');
             callback(new Error('unattended open not allowed'));
-        } else if(self.currentState === Characteristic.CurrentDoorState.CLOSED) {
+        } else if(self.currentState === Characteristic.CurrentDoorState.CLOSED ||
+            self.currentState === Characteristic.CurrentDoorState.STOPPED) {
             self.log.warn('opening door');
             self.currentState = Characteristic.CurrentDoorState.OPENING;
             self.platform.door_open.call(self.platform, self.device.MyQDeviceId, function(){
                 self.updateDoorState.call(self, '4', moment().format('x'));
-                callback(null); 
+                callback(null);
             });
         } else if(self.currentState === Characteristic.CurrentDoorState.OPEN
             || self.currentState === Characteristic.CurrentDoorState.OPENING) {
@@ -593,12 +594,13 @@ MyQDoorAccessory.prototype.setDoorState = function(state, callback) {
         if (!self.isunattendedcloseallowed) {
             self.log.warn('unattended close not allowed');
             callback(new Error('unattended open not allowed'));
-        } else if(self.currentState === Characteristic.CurrentDoorState.OPEN) {
+        } else if(self.currentState === Characteristic.CurrentDoorState.OPEN ||
+            self.currentState === Characteristic.CurrentDoorState.STOPPED) {
             self.currentState = Characteristic.CurrentDoorState.CLOSING;
             self.log.warn('closing door');
             self.platform.door_close.call(self.platform, self.device.MyQDeviceId, function(){
                 self.updateDoorState.call(self, '5', moment().format('x'));
-                callback(null); 
+                callback(null);
             });
         } else if(self.currentState === Characteristic.CurrentDoorState.CLOSED ||
                     self.currentState === Characteristic.CurrentDoorState.CLOSING) {
@@ -640,7 +642,7 @@ MyQDoorAccessory.prototype.updateDoorState = function(doorstate, updateTime) {
         }
         self.stateUpdatedTime = updateTime;
     }
-    
+
     if(self.refreshTimer) {
         clearTimeout(self.refreshTimer);
         self.refreshTimer = null;
@@ -654,4 +656,3 @@ MyQDoorAccessory.prototype.updateDoorState = function(doorstate, updateTime) {
         }.bind(self), 1000);
     }
 }
-
