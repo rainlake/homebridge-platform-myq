@@ -8,7 +8,8 @@
             "user": "user@example.com",
             "pass": "passw0rd",
             "brand": "Chamberlain",
-            "ignoreDeviceWithoutDescription" : true
+            "ignoreDeviceWithoutDescription" : true,
+            "appId": "JVM/G9Nwih5BwKgNCjLxiFUQxQijAebyyg8QUHr7JOrP+tuPb8iHfRHKwTmDzHOu"
         }
     ]
 }

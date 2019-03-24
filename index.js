@@ -35,6 +35,9 @@ function MyQPlatform(log, config) {
         self.host = 'https://craftexternal.myqdevice.com';
         self.appId = 'OA9I/hgmPHFp9RYKJqCKfwnhh28uqLJzZ9KOJf1DXoo8N2XAaVX6A1wcLYyWsnnv';
     }
+    if(config.appId) {
+        self.appId = config.appId;
+    }
     self.refreshInterval = 30 * 1000;
     self.userAgent = config.brand + '/3.4 (iPhone; iOS 9.2.1; Scale/2.00)';
 }
