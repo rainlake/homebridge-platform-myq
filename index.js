@@ -30,8 +30,8 @@ function MyQAPI(log, host, userAgent, appId, userName, password)
     this.host = host;
     this.userAgent = userAgent;
     this.appId = appId;
-    this.userName = userName; //self.config['user']
-    this.password = password; //self.config['pass']
+    this.userName = userName;
+    this.password = password;
 }
 MyQAPI.prototype.processResponse = function(error, response, body) {
     var self = this;
@@ -130,6 +130,7 @@ MyQAPI.prototype.getDevices = function () {
             }
         }, function (error, response, body) {
             self.processResponse(error, response, body).then(function(body) {
+                console.log(JSON.stringify(body));
                 if(body.Devices && body.Devices.length > 0) {
                     body.Devices.forEach(function(device) {
                         if(device.MyQDeviceTypeId === 2 /*garage door*/
@@ -187,6 +188,32 @@ MyQAPI.prototype.getDeviceAttribute = function(deviceid, attributename) {
         });
     });
 }
+MyQAPI.prototype.setDeviceAttribute = function(deviceid, attributeName, attributeValue)
+{
+    var self = this;
+    return new Promise(function(resolve, reject) {
+        request.put({
+            url : self.host + '/api/v4/DeviceAttribute/PutDeviceAttribute',
+            headers : {
+                'User-Agent': self.userAgent,
+                'MyQApplicationId': self.appId,
+                'BrandId': self.BrandId,
+                'SecurityToken': self.SecurityToken
+            },
+            json : {
+                MyQDeviceId : deviceid,
+                AttributeName : attributeName,
+                AttributeValue: attributeValue
+            }
+        }, function (error, response, body) {
+            self.processResponse(error, response, body).then(function(body) {
+                resolve();
+            }).catch(function(error) {
+                reject(error);
+            });
+        });
+    });    
+}
 function MyQPlatform(log, config) {
     this.config = config;
     this.log = log;
@@ -205,52 +232,6 @@ function MyQPlatform(log, config) {
     this.myqapi = new MyQAPI(this.log, this.host, this.userAgent, this.appId, this.config['user'], this.config['pass']);
 }
 
-MyQPlatform.prototype.retry_login = function(onSuccess) {
-    var self = this;
-    self.log.warn('retrying login.');
-
-    self.login(onSuccess, function(returnCode, errorMessage) {
-        setTimeout(function() {
-            self.retry_login.call(self, onSuccess);
-        }.bind(self), self.refreshInterval);
-    });
-}
-
-MyQPlatform.prototype.sendCommand = function(command, device_id, state, callback) {
-    var self = this;
-    request.put({
-        url : self.host + '/api/v4/DeviceAttribute/PutDeviceAttribute',
-        headers : {
-            'User-Agent': self.userAgent,
-            'MyQApplicationId': self.appId,
-            'BrandId': self.BrandId,
-            'SecurityToken': self.SecurityToken
-        },
-        json : {
-            MyQDeviceId : device_id,
-            AttributeName : command,
-            AttributeValue: state,
-        }
-    }, function (error, response, body) {
-        if (!error && response.statusCode == 200 && body.ReturnCode === '0') {
-            self.log.info('sendcommand successed, command=[%s],state=[%s]', command, state);
-            callback(body);
-        } else {
-            self.log.error('send command failed.');
-            self.log.error(error);
-            if (response) self.log.error(response);
-            if (body) self.log.error(body);
-        }
-    });
-}
-MyQPlatform.prototype.door_open = function(device_id, callback) {
-    var self = this;
-    self.sendCommand.call(self, 'desireddoorstate', device_id, '1', callback);
-}
-MyQPlatform.prototype.door_close = function(device_id, callback) {
-    var self = this;
-    self.sendCommand.call(self, 'desireddoorstate', device_id, '0', callback);
-}
 MyQPlatform.prototype.light_on = function(device_id, callback) {
     var self = this;
     self.sendCommand.call(self, 'desiredlightstate', device_id, '1', callback);
@@ -267,7 +248,6 @@ MyQPlatform.prototype.accessories = function(callback) {
         return self.myqapi.getDevices();
     })
     .then(function(devices) {
-        
         var result = [];
         devices.forEach(function(device) {
             if(device.isGarageDoor) {
@@ -275,8 +255,7 @@ MyQPlatform.prototype.accessories = function(callback) {
                 if(!self.config.ignoreDeviceWithoutDescription || accessory.isDescriptionSet) {
                     result.push(accessory);
                 }
-                //TODO lights
-            }
+            }//TODO lights
         });
         self.LoadedDevices = result;
         self.timer = setTimeout(function() {
@@ -287,32 +266,6 @@ MyQPlatform.prototype.accessories = function(callback) {
     .catch(function(error) {
         throw new Error("homebridge-platform-myq has intentially brought down HomeBridge - please restart!");
     });
-    
-    /*self.login.call(self, function() {
-        self.getDevices.call(self, function(door_devices, light_devices, gateway_devices) {
-            self.foundAccessories = [];
-            door_devices.forEach(function(device) {
-                var accessory = new MyQDoorAccessory(self, device);
-                if(!self.config.ignoreDeviceWithoutDescription || accessory.isDescriptionSet) {
-                    self.foundAccessories.push(accessory);
-                }
-            });
-            light_devices.forEach(function(device) {
-                var accessory = new MyQLightAccessory(self, device);
-                if(!self.config.ignoreDeviceWithoutDescription || accessory.isDescriptionSet) {
-                    self.foundAccessories.push(accessory);
-                }
-            });
-            callback(self.foundAccessories);
-            self.timer = setTimeout(self.deviceStateTimer.bind(self), self.refreshInterval);
-        }, function(returnCode, errorMessage) {
-            self.log.error('MyQ Server error when list accessories, returncode=[%s], errormessage=[%s]', returnCode, errorMessage);
-            throw new Error("homebridge-platform-myq has intentially brought down HomeBridge - please restart!");
-        });
-    }, function(returnCode, errorMessage) {
-        self.log.error('MyQ Server error, returncode=[%s], errormessage=[%s]', returnCode, errorMessage);
-        throw new Error("homebridge-platform-myq has intentially brought down HomeBridge - please fix your configuration!");
-    });*/
 }
 MyQPlatform.prototype.deviceStateTimer = function() {
     var self = this;
@@ -320,18 +273,19 @@ MyQPlatform.prototype.deviceStateTimer = function() {
         clearTimeout(this.timer);
         this.timer = null;
     }
-    this.getDevices().then(function(devices) {
-        devices.forEach(function(device) {
-            var loadedDevice = self.LoadedDevices.find(function(dev) {
-                return device.MyQDeviceId == dev.device.MyQDeviceId;
+    this.myqapi.getDevices().then(function(devices) {
+        try{
+            devices.forEach(function(device) {
+                var loadedDevice = self.LoadedDevices.find(function(dev) {
+                    return device.MyQDeviceId == dev.device.MyQDeviceId;
+                });
+                if(loadedDevice) {
+                    loadedDevice.updateDevice(device);
+                }
             });
-            if(loadedDevice) {
-                loadedDevice.updateDevice(device);
-            } else {
-                self.log.error('Can not find device');
-                self.log.error(device);
-            }
-        });
+        }catch(e) {
+            console.log(e);
+        }
         
     }).catch(function(error) {
 
@@ -341,9 +295,7 @@ MyQPlatform.prototype.deviceStateTimer = function() {
     }, self.refreshInterval);
 }
 
-MyQPlatform.prototype.dateTimeToDisplay = function(unixtime) {
-    return moment(unixtime, 'x').fromNow()
-}
+
 
 function MyQAccessory(platform, device) {
     this.platform = platform;
@@ -360,6 +312,9 @@ MyQAccessory.prototype.getDeviceAttr = function(device, attr, cb) {
         return attribute.AttributeDisplayName == attr;
     });
     return v && (cb ? cb(v) : v.Value);
+}
+MyQAccessory.prototype.dateTimeToDisplay = function(unixtime) {
+    return moment(unixtime, 'x').fromNow()
 }
 MyQAccessory.prototype.descState = function(state) {
     switch(state) {
@@ -379,42 +334,6 @@ MyQAccessory.prototype.descState = function(state) {
 }
 
 MyQAccessory.prototype.updateDevice = function(devices) {
-    /*var self = this;
-    var isMe = false;
-    if(!devices) {
-        return false;
-    }
-    for(var i=0; i< devices.length; i++){
-        if(!self.device || self.device.MyQDeviceId === devices[i].MyQDeviceId) {
-            self.device = devices[i];
-            isMe = true;
-            break;
-        }
-    }
-    if(!isMe || !self.device) {
-        return false;
-    }
-    self.device.Attributes.forEach(function(attribute) {
-        if (attribute.AttributeDisplayName === 'doorstate') {
-            self.doorstate = attribute.Value;
-            self.doorstateUpdateTime = attribute.UpdatedTime;
-        } else if (attribute.AttributeDisplayName === 'lightstate') {
-            self.lightstate = attribute.Value;
-            self.lightstateUpdateTime = attribute.UpdatedTime;
-        } else if(attribute.AttributeDisplayName === 'desc') {
-            if(attribute.Value) {
-                self.name = attribute.Value;
-                self.isDescriptionSet = true;
-            }
-        } else if(attribute.AttributeDisplayName === 'isunattendedopenallowed') {
-            self.isunattendedopenallowed = attribute.Value === '1';
-        } else if(attribute.AttributeDisplayName === 'isunattendedcloseallowed') {
-            self.isunattendedcloseallowed = attribute.Value === '1';
-        } else if(attribute.AttributeDisplayName === 'fwver') {
-            self.fwver = attribute.Value;
-        }
-    });
-    return true;*/
 }
 
 MyQAccessory.prototype.getServices = function() {
@@ -455,10 +374,10 @@ function MyQLightAccessory(platform, device) {
     this.service.addCharacteristic(LastUpdate);
     this.service.getCharacteristic(Characteristic.On).value = this.currentState;
     this.service.getCharacteristic(Characteristic.Name).value = this.name;
-    this.service.getCharacteristic(LastUpdate).value = this.platform.dateTimeToDisplay(this.stateUpdatedTime);
+    this.service.getCharacteristic(LastUpdate).value = this.dateTimeToDisplay(this.stateUpdatedTime);
 
     this.service.getCharacteristic(LastUpdate).on('get', function(callback) {
-        callback(null, self.platform.dateTimeToDisplay(self.stateUpdatedTime));
+        callback(null, self.dateTimeToDisplay(self.stateUpdatedTime));
     });
 
     this.service.getCharacteristic(Characteristic.On)
@@ -475,7 +394,7 @@ function MyQLightAccessory(platform, device) {
                 self.stateUpdatedTime = moment().format('x');
 
                 self.service.getCharacteristic(Characteristic.On).setValue(self.currentState);
-                self.service.getCharacteristic(LastUpdate).setValue(self.platform.dateTimeToDisplay(self.stateUpdatedTime));
+                self.service.getCharacteristic(LastUpdate).setValue(self.dateTimeToDisplay(self.stateUpdatedTime));
                 callback(null);
             });
         } else {
@@ -491,7 +410,7 @@ MyQLightAccessory.prototype.updateDevice = function(devices) {
     if(MyQLightAccessory.super_.prototype.updateDevice.call(self, devices) && self.lightstateUpdateTime) {
         if(self.stateUpdatedTime !== self.lightstateUpdateTime && self.service) {
             self.stateUpdatedTime = self.lightstateUpdateTime;
-            self.service.getCharacteristic(LastUpdate).setValue(self.platform.dateTimeToDisplay(self.stateUpdatedTime));
+            self.service.getCharacteristic(LastUpdate).setValue(self.dateTimeToDisplay(self.stateUpdatedTime));
         }
         if(self.currentState !== self.lightstate && self.service) {
             self.currentState = self.lightstate === '1' ? true:false;
@@ -500,7 +419,7 @@ MyQLightAccessory.prototype.updateDevice = function(devices) {
         self.log.debug('Light[%s] Light State=[%s], Updated time=[%s]',
             self.name,
             self.lightstate === '1' ? 'on':'off',
-            self.platform.dateTimeToDisplay(self.stateUpdatedTime)
+            self.dateTimeToDisplay(self.stateUpdatedTime)
         );
     }*/
 }
@@ -522,110 +441,87 @@ function MyQDoorAccessory(platform, device) {
     }
 
     this.service.getCharacteristic(Characteristic.TargetDoorState).value = this.targetState;
-    this.service.getCharacteristic(LastUpdate).value = this.platform.dateTimeToDisplay(this.getAttr('doorstate', function(attr) {
+    this.service.getCharacteristic(LastUpdate).value = this.dateTimeToDisplay(this.getAttr('doorstate', function(attr) {
         return attr.UpdatedTime;
     }));
 
     this.service.getCharacteristic(LastUpdate).on('get', function(cb) {
-        cb(null, self.platform.dateTimeToDisplay(self.stateUpdatedTime));
+        cb(null, self.dateTimeToDisplay(self.stateUpdatedTime));
     });
 
     this.service.getCharacteristic(Characteristic.CurrentDoorState)
     .on('get', function(callback) {
         // calling api for latest state
-        self.platform.getDeviceAttribute(self.device.MyQDeviceId, 'doorstate')
+        self.platform.myqapi.getDeviceAttribute(self.device.MyQDeviceId, 'doorstate')
         .then(function(result) {
             var state = self.translateDoorState(result.Value);
             self.log.debug("Getting current door state...[%s]", state);
-            callback(state);
+            callback(null, state);
         })
-        .reject(function() {
-            callback();
+        .catch(function(e) {
+            callback(e);
         });
     });
 
     this.service.getCharacteristic(Characteristic.TargetDoorState)
     .on('get', function(callback) {
+        console.log("Getting target door state");
         callback(null, self.targetState);
     })
-    .on('set', function(state) {
-        self.setDoorState(state);
+    .on('set', function(state, callback) {
+        self.platform.myqapi.setDeviceAttribute(self.device.MyQDeviceId, 'desireddoorstate', 
+            state === Characteristic.TargetDoorState.OPEN ? '1' : '0')
+        .then(function() {
+            callback(null);
+            self.refreshDoorStateUntilChange(60, function() {
+                self.platform.deviceStateTimer();
+            });
+        }).catch(function(error) {
+            callback(error);
+        });        
     });
 }
 util.inherits(MyQDoorAccessory, MyQAccessory);
-
-MyQDoorAccessory.prototype.updateDevice = function(devices) {
+/*
+refresh door state until it is changed or timeout or error.
+ */
+MyQDoorAccessory.prototype.refreshDoorStateUntilChange = function(timeout, callback) {
+    var self = this;
+    this.platform.myqapi.getDeviceAttribute(self.device.MyQDeviceId, 'doorstate')
+    .then(function(result) {
+        if (self.getAttr('doorstate') != result.Value) {
+            callback(null);
+        } else if(timeout <= 0) {
+            callback(new Error('door state did not change'));
+        } else {
+            setTimeout(function() {
+                self.refreshDoorStateUntilChange(timeout--, callback);
+            }, 1000);
+        }
+    }).catch(function(error) {
+        callback(error);
+    });
+}
+MyQDoorAccessory.prototype.updateDevice = function(device) {
     var currentDoorState = this.getAttr('doorstate');
-    var doorState = this.getDeviceAttr('doorstate');
-    if(doorstate != currentDoorState) {
+    var doorState = this.getDeviceAttr(device, 'doorstate');
+    if(doorState != currentDoorState) {
         this.service.getCharacteristic(Characteristic.CurrentDoorState).setValue(
-            this.translateDoorState(doorstate)
+            this.translateDoorState(doorState)
         );
     }
     this.device = device;
-    this.log.debug('Door[%s] Door State=[%s], Updated time=[%s], isunattendedopenallowed=[%s], isunattendedcloseallowed=[%s]',
+    this.log.debug('Door[%s] Door State=[%s], Updated time=[%s]',
         this.name,
         this.descState(this.getAttr('doorstate')),
-        this.platform.dateTimeToDisplay(this.getAttr('doorstate', function(attr) {
+        this.dateTimeToDisplay(this.getAttr('doorstate', function(attr) {
             return attr.UpdatedTime;
         })),
-        this.isunattendedopenallowed,
-        this.isunattendedcloseallowed
     );
 }
 
-MyQDoorAccessory.prototype.setDoorState = function(state, callback) {
-    var self = this;
-    self.log.warn("Set state to %s", state);
-
-    if(self.targetState !== state) {
-        self.targetState = state;
-        if(self.service) {
-            self.service.getCharacteristic(Characteristic.TargetDoorState).setValue(self.targetState);
-        }
-    }
-
-    if(state === Characteristic.TargetDoorState.OPEN) {
-        if (!self.isunattendedopenallowed) {
-            self.log.warn('unattended open not allowed');
-            callback(new Error('unattended open not allowed'));
-        } else if(self.currentState === Characteristic.CurrentDoorState.CLOSED ||
-            self.currentState === Characteristic.CurrentDoorState.STOPPED) {
-            self.log.warn('opening door');
-            self.currentState = Characteristic.CurrentDoorState.OPENING;
-            self.platform.door_open.call(self.platform, self.device.MyQDeviceId, function(){
-                self.updateDoorState.call(self, '4', moment().format('x'));
-                callback(null);
-            });
-        } else if(self.currentState === Characteristic.CurrentDoorState.OPEN
-            || self.currentState === Characteristic.CurrentDoorState.OPENING) {
-            callback(null);
-        } else {
-            self.log.warn('Can not open door, current state is:[%s]', self.currentState);
-            callback(new Error('Can not open door, current state not allowed'));
-        }
-    } else if (state === Characteristic.TargetDoorState.CLOSED) {
-        if (!self.isunattendedcloseallowed) {
-            self.log.warn('unattended close not allowed');
-            callback(new Error('unattended open not allowed'));
-        } else if(self.currentState === Characteristic.CurrentDoorState.OPEN ||
-            self.currentState === Characteristic.CurrentDoorState.STOPPED) {
-            self.currentState = Characteristic.CurrentDoorState.CLOSING;
-            self.log.warn('closing door');
-            self.platform.door_close.call(self.platform, self.device.MyQDeviceId, function(){
-                self.updateDoorState.call(self, '5', moment().format('x'));
-                callback(null);
-            });
-        } else if(self.currentState === Characteristic.CurrentDoorState.CLOSED ||
-                    self.currentState === Characteristic.CurrentDoorState.CLOSING) {
-            callback(null);
-        } else {
-            self.log.warn('Can not close door, current state is:[%s]', self.currentState);
-            callback(new Error('Can not close door, current state not allowed'));
-        }
-    }
-}
-MyQDoorAccessory.prototype.translateDoorState = function(doorstate, currentState){
+MyQDoorAccessory.prototype.translateDoorState = function(doorstate){
+    var currentState = this.device && this.getAttr('doorstate');
     var state = Characteristic.CurrentDoorState.OPEN
     if(doorstate === '1' || doorstate === '9') {
         state = Characteristic.CurrentDoorState.OPEN;
@@ -635,48 +531,15 @@ MyQDoorAccessory.prototype.translateDoorState = function(doorstate, currentState
         state = Characteristic.CurrentDoorState.STOPPED;
     } else if (doorstate === '4') {
         state = Characteristic.CurrentDoorState.OPENING;
-    } else if (doorstate === '8' && currentState === Characteristic.CurrentDoorState.CLOSED) {
+    } else if (doorstate === '8' && currentState == '2') {
         state = Characteristic.CurrentDoorState.OPENING;
     } else if (doorstate === '5') {
         state = Characteristic.CurrentDoorState.CLOSING;
-    } else if (doorstate === '8' && currentState === Characteristic.CurrentDoorState.OPEN) {
+    } else if (doorstate === '8' && (currentState == '1' || currentState == '9')) {
         state = Characteristic.CurrentDoorState.CLOSING;
     } else if(doorstate === '8') {
         // we do not know current state, use Closing
         state = Characteristic.CurrentDoorState.CLOSING;
     }
     return state;
-}
-MyQDoorAccessory.prototype.updateDoorState = function(doorstate, updateTime) {
-    var self = this;
-    var state = self.currentState;
-
-    if(updateTime < self.stateUpdatedTime && moment().format('x') - self.stateUpdatedTime < 30000) {
-        self.log.warn('updatetime=%s, self.stateUpdatedTime=%s, now=%s, will do nothing.', updateTime, self.stateUpdatedTime, moment().format('x'));
-    } else {
-        state = self.translateDoorState(doorstate, self.currentState);
-
-        if(state !== self.currentState && self.service) {
-            self.service.getCharacteristic(Characteristic.CurrentDoorState).setValue(state);
-        }
-        self.currentState = state;
-
-        if(updateTime !== self.stateUpdatedTime && self.service) {
-            self.service.getCharacteristic(LastUpdate).setValue(self.platform.dateTimeToDisplay(updateTime));
-        }
-        self.stateUpdatedTime = updateTime;
-    }
-
-    if(self.refreshTimer) {
-        clearTimeout(self.refreshTimer);
-        self.refreshTimer = null;
-    }
-    if(moment().format('x') - self.stateUpdatedTime < 10000) {
-        self.log.debug('state changed [%s] seconds ago, refreshing. lastupdatetime=[%s]', (moment().format('x') - self.stateUpdatedTime) / 1000, self.stateUpdatedTime);
-        self.refreshTimer = setTimeout(function() {
-            self.platform.getDeviceAttribute.call(self.platform, self.device.MyQDeviceId, 'doorstate', function(value, updatetime) {
-                self.updateDoorState.call(self, value, updatetime);
-            }.bind(self));
-        }.bind(self), 1000);
-    }
 }
