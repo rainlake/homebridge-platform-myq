@@ -6,6 +6,9 @@
   "keywords": [
     "homebridge-plugin"
   ],
+  "scripts": {
+    "build": "tsc src/*.ts --outDir dist"
+  },
   "repository": {
     "type": "git",
     "url": "git://github.com/rainlake/homebridge-platform-myq.git"
@@ -18,7 +21,14 @@
     "homebridge": ">=0.2.0"
   },
   "dependencies": {
+    "hap-nodejs": "^0.4.53",
+    "install": "^0.13.0",
+    "moment": ">=2.4.0",
+    "npm": "^6.10.0",
     "request": "^2.65.0",
-    "moment": ">=2.4.0"
+    "request-promise-native": "^1.0.7"
+  },
+  "devDependencies": {
+    "typescript": "^3.5.2"
   }
 }
