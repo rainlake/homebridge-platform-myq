@@ -7,8 +7,11 @@
     "homebridge-plugin"
   ],
   "scripts": {
-    "build": "tsc src/*.ts --outDir dist"
+    "build": "tsc src/*.ts --outDir dist",
+    "debugmore": "NODE_DEBUG=request DEBUG=* homebridge -D -P ../homebridge-myq",
+    "debug": "DEBUG=* homebridge -D -P ../homebridge-myq"
   },
+  "main": "dist/index.js",
   "repository": {
     "type": "git",
     "url": "git://github.com/rainlake/homebridge-platform-myq.git"
@@ -17,18 +20,19 @@
     "url": "https://github.com/rainlake/homebridge-platform-myq/issues"
   },
   "engines": {
-    "node": ">=0.12.0",
-    "homebridge": ">=0.2.0"
+    "node": ">=4.3.2",
+    "homebridge": ">=0.4.50"
   },
   "dependencies": {
     "hap-nodejs": "^0.4.53",
     "install": "^0.13.0",
-    "moment": ">=2.4.0",
+    "moment": ">=2.10.0",
     "npm": "^6.10.0",
     "request": "^2.65.0",
-    "request-promise-native": "^1.0.7"
+    "request-promise": "^4.2.4"
   },
   "devDependencies": {
-    "typescript": "^3.5.2"
+    "@types/request-promise": "^4.1.44",
+    "typescript": "^3.6.4"
   }
 }

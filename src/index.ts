@@ -1,11 +1,10 @@
-import * as request from "request-promise-native";
-
+import { MyQPlatform } from './myqplatform';
 import { Characteristic } from 'hap-nodejs';
+import { HomeBridge } from './homebridge';
 export class LastUpdate extends Characteristic {
 
 }
 
-export default function (homebridge: any) {
-    var Characteristic = homebridge.hap.Characteristic;
-    console.log(homebridge.hap.Characteristic);
+export default function (homebridge: HomeBridge) {
+    homebridge.registerPlatform("homebridge-platform-myq", "MyQ", MyQPlatform);
 }
